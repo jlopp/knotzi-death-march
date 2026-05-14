@@ -103,15 +103,14 @@
                 be forked off the Bitcoin network.<br /> <br />
                 For background info, see
                 <a href="https://blog.lopp.net/a-laymans-guide-to-bip-110/">A Layman's Guide to BIP-110</a> and
-                <a href="https://blog.lopp.net/knot-a-serious-project/">It's Knot a Serious Project</a>
+                <a href="https://blog.lopp.net/knot-a-serious-project/">It's Knot a Serious Project</a><br /><br />
+                To see the status of BIP-110 miner signaling, check <a href="https://wickedsmartbitcoin.com/bip110_signaling">this chart</a>.
               </p>
             </div>
           </div>
           <div>
             <label class="col-sm-2"></label>
             <div class="col-sm-10">
-              <h1 style="color:red;font-weight:bold" id="blocksremaining"></h1>
-              <h2 style="color:red;font-weight:bold" id="etaday"></h1>
               <div
                 class="tick"
                 data-credits="false"
@@ -136,6 +135,8 @@
                 <source src="media/splat.mp4" type="video/mp4" />
                 Your browser does not support the video tag!
               </video>
+              <h1 style="color:red;font-weight:bold" id="blocksremaining"></h1>
+              <h2 style="color:red;font-weight:bold" id="etaday"></h1>
             </div>
           </div>
         </div>
@@ -189,6 +190,8 @@
 
       } else {
         document.getElementById("timesup").style.display = "block";
+        document.getElementById("blocksremaining").style.display = "none";
+        document.getElementById("etaday").style.display = "none";
       }
       function startCountdown(tick) {
         // time in seconds the timer will run down
@@ -214,6 +217,8 @@
 
         counter.onended = function () {
           document.getElementById("countdown").style.display = "none";
+          document.getElementById("blocksremaining").style.display = "none";
+          document.getElementById("etaday").style.display = "none";
           document.getElementById("timesup").style.display = "block";
           document.getElementById("timesup").autoplay = "true";
         };
