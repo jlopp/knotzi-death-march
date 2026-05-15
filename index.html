@@ -131,9 +131,13 @@
                   </div>
                 </div>
               </div>
+              <video loop controls muted playsinline id="finalcountdown" width="100%" style="display: none">
+                <source src="media/anticipation.mp4" type="video/mp4" />
+                You're missing out because your browser does not support the video tag!
+              </video>
               <video loop controls muted playsinline id="timesup" width="100%" style="display: none">
                 <source src="media/splat.mp4" type="video/mp4" />
-                Your browser does not support the video tag!
+                You're missing out because your browser does not support the video tag!
               </video>
               <h1 style="color:red;font-weight:bold" id="blocksremaining"></h1>
               <h2 style="color:red;font-weight:bold" id="etaday"></h1>
@@ -179,20 +183,33 @@
       var secondsRemaining = blocksRemaining * 10 * 60;
 
       if (blocksRemaining > 0) {
-        document.getElementById('blocksremaining').innerHTML = "T-minus " + blocksRemaining.toLocaleString()
-          + " blocks remaining.";
+        document.getElementById('blocksremaining').innerHTML = "T-minus " + blocksRemaining.toLocaleString() + " blocks remaining.";
         document.getElementById("countdown").style.display = "block";
+
+        if (blocksRemaining == 1) { // no point counting down due to variance
+          document.getElementById('blocksremaining').innerHTML = "ONE FINAL BLOCK REMAINING!!!";
+          document.getElementById("countdown").style.display = "none";
+        }
 
         var timeDuration = Tick.helper.duration(secondsRemaining, "seconds");
         var now = new Date();
         var deadline = new Date(now.setMilliseconds(now.getMilliseconds() + timeDuration));
         document.getElementById('etaday').innerHTML = "Fork ETA: " + deadline.toLocaleString() + "<br/><br/>";
 
+        if (blocksRemaining < 144) {
+          document.getElementById("finalcountdown").style.display = "block";
+          document.getElementById("finalcountdown").autoplay = "true";
+        }
       } else {
-        document.getElementById("timesup").style.display = "block";
+        document.getElementById("countdown").style.display = "none";
+        document.getElementById("finalcountdown").style.display = "none";
+        document.getElementById("finalcountdown").autoplay = "false";
         document.getElementById("blocksremaining").style.display = "none";
         document.getElementById("etaday").style.display = "none";
+        document.getElementById("timesup").style.display = "block";
+        document.getElementById("timesup").autoplay = "true";
       }
+
       function startCountdown(tick) {
         // time in seconds the timer will run down
         var timeDuration = Tick.helper.duration(secondsRemaining, "seconds");
@@ -217,6 +234,7 @@
 
         counter.onended = function () {
           document.getElementById("countdown").style.display = "none";
+          document.getElementById("finalcountdown").style.display = "none";
           document.getElementById("blocksremaining").style.display = "none";
           document.getElementById("etaday").style.display = "none";
           document.getElementById("timesup").style.display = "block";
