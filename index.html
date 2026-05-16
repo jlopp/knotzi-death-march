@@ -104,7 +104,8 @@
                 For background info, see
                 <a href="https://blog.lopp.net/a-laymans-guide-to-bip-110/">A Layman's Guide to BIP-110</a> and
                 <a href="https://blog.lopp.net/knot-a-serious-project/">It's Knot a Serious Project</a><br /><br />
-                To see the status of BIP-110 miner signaling, check <a href="https://wickedsmartbitcoin.com/bip110_signaling">this chart</a>.
+                To see the status of BIP-110 miner signaling, check <a href="https://wickedsmartbitcoin.com/bip110_signaling">this chart</a>.<br /> 
+                To compare current block heights reported by different node implementations, check <a href="https://bitnod.es/">bitnod.es</a>.
               </p>
             </div>
           </div>
@@ -173,44 +174,78 @@
       </div>
     </div>
     <script>
-      // get the latest chain tip block height
-      var Httpreq = new XMLHttpRequest(); // a new request
-      Httpreq.open("GET", "https://mempool.space/api/blocks/tip/height", false);
-      Httpreq.send(null);
-      var currentHeight = Httpreq.responseText;
-      var blocksRemaining = 961632 - currentHeight;
+      var currentHeight = null;
+      var secondsRemaining = null;
 
-      var secondsRemaining = blocksRemaining * 10 * 60;
+      function updateChaintip() {
+        // get the latest chain tip block height
+        var Httpreq = new XMLHttpRequest(); // a new request
+        Httpreq.open("GET", "https://mempool.space/api/blocks/tip/height", false);
+        Httpreq.send(null);
+        var height = Httpreq.responseText;
 
-      if (blocksRemaining > 0) {
-        document.getElementById('blocksremaining').innerHTML = "T-minus " + blocksRemaining.toLocaleString() + " blocks remaining.";
-        document.getElementById("countdown").style.display = "block";
+        // chain tip hasn't changed; no need to update anything
+        if (currentHeight !== null && height == currentHeight) {
+          return;
+        }
+        currentHeight = height;
+        var blocksRemaining = 961632 - currentHeight;
 
-        if (blocksRemaining == 1) { // no point counting down due to variance
-          document.getElementById('blocksremaining').innerHTML = "ONE FINAL BLOCK REMAINING!!!";
+        secondsRemaining = blocksRemaining * 10 * 60;
+
+        if (blocksRemaining > 0) {
+          document.getElementById('blocksremaining').innerHTML = "T-minus " + blocksRemaining.toLocaleString() + " blocks remaining.";
+          document.getElementById("countdown").style.display = "block";
+
+          if (blocksRemaining == 1) { // no point counting down due to variance
+            document.getElementById('blocksremaining').innerHTML = "ONE FINAL BLOCK REMAINING!!!";
+            document.getElementById("countdown").style.display = "none";
+            document.getElementById("etaday").style.display = "none";
+          }
+
+          // recalculate and re-initialized the countdown clock
+          /*
+          var timeDuration = Tick.helper.duration(secondsRemaining, "seconds");
+          var now = new Date();
+          var deadline = new Date(now.setMilliseconds(now.getMilliseconds() + timeDuration));
+          document.getElementById('etaday').innerHTML = "Fork ETA: " + deadline.toLocaleString() + "<br/><br/>";
+
+          // update countdown timer
+          var totalSeconds = secondsRemaining;
+          const days = Math.floor(totalSeconds / 86400);
+          totalSeconds %= 86400;
+
+          const hours = Math.floor(totalSeconds / 3600);
+          totalSeconds %= 3600;
+
+          const minutes = Math.floor(totalSeconds / 60);
+          const seconds = totalSeconds % 60;
+          if (Tick.DOM.find(document.getElementById("countdown")) !== undefined) {
+            Tick.DOM.find(document.getElementById("countdown")).value = [days, hours, minutes, seconds];
+          }
+          */
+
+          if (blocksRemaining < 144) {
+            document.getElementById("finalcountdown").style.display = "block";
+            document.getElementById("finalcountdown").autoplay = "true";
+          }
+        } else {
           document.getElementById("countdown").style.display = "none";
+          document.getElementById("finalcountdown").style.display = "none";
+          document.getElementById("finalcountdown").autoplay = "false";
+          document.getElementById("blocksremaining").style.display = "none";
+          document.getElementById("etaday").style.display = "none";
+          document.getElementById("timesup").style.display = "block";
+          document.getElementById("timesup").autoplay = "true";
         }
-
-        var timeDuration = Tick.helper.duration(secondsRemaining, "seconds");
-        var now = new Date();
-        var deadline = new Date(now.setMilliseconds(now.getMilliseconds() + timeDuration));
-        document.getElementById('etaday').innerHTML = "Fork ETA: " + deadline.toLocaleString() + "<br/><br/>";
-
-        if (blocksRemaining < 144) {
-          document.getElementById("finalcountdown").style.display = "block";
-          document.getElementById("finalcountdown").autoplay = "true";
-        }
-      } else {
-        document.getElementById("countdown").style.display = "none";
-        document.getElementById("finalcountdown").style.display = "none";
-        document.getElementById("finalcountdown").autoplay = "false";
-        document.getElementById("blocksremaining").style.display = "none";
-        document.getElementById("etaday").style.display = "none";
-        document.getElementById("timesup").style.display = "block";
-        document.getElementById("timesup").autoplay = "true";
       }
 
       function startCountdown(tick) {
+        // web page isn't fully initialized yet
+        if (secondsRemaining == null) {
+          return;
+        }
+
         // time in seconds the timer will run down
         var timeDuration = Tick.helper.duration(secondsRemaining, "seconds");
         var now = new Date();
@@ -220,6 +255,9 @@
         var counter = Tick.count.down(deadline, { format: ["d", "h", "m", "s"] });
 
         counter.onupdate = function (value) {
+          if (tick == undefined) {
+            return;
+          }
           tick.value = value;
           tick.root.setAttribute(
             "aria-label",
@@ -241,6 +279,9 @@
           document.getElementById("timesup").autoplay = "true";
         };
       }
+
+      updateChaintip();
+      setInterval(updateChaintip, 60000); // refresh once per minute
     </script>
   </body>
 </html>
