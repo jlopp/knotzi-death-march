@@ -142,6 +142,11 @@
                 </div>
               </div>
 
+              <video loop controls muted playsinline id="cartman" width="100%" style="display: none">
+                <source src="media/cartman.mp4" type="video/mp4" />
+                You're missing out because your browser does not support the video tag!
+              </video>
+
               <video loop controls muted playsinline id="finalcountdown" width="100%" style="display: none">
                 <source src="media/anticipation.mp4" type="video/mp4" />
                 You're missing out because your browser does not support the video tag!
@@ -230,13 +235,6 @@
 
           document.getElementById("countdown").style.display = "block";
 
-          if (blocksRemaining === 1) {
-            document.getElementById("blocksremaining").innerHTML = "ONE FINAL BLOCK REMAINING!!!";
-            document.getElementById("countdown").style.display = "none";
-            document.getElementById("etaday").style.display = "none";
-            return;
-          }
-
           var deadline = new Date(Date.now() + secondsRemaining * 1000);
 
           document.getElementById("etaday").innerHTML = "Fork ETA: " + deadline.toLocaleString() + "<br/><br/>";
@@ -245,12 +243,26 @@
           // Just restart the countdown controller against the existing Tick instance.
           startOrResetCountdown();
 
-          if (blocksRemaining < 144) {
+          if (blocksRemaining === 1) {
+            document.getElementById("blocksremaining").innerHTML = "ONE FINAL BLOCK REMAINING!!!";
+            document.getElementById("countdown").style.display = "none";
+            document.getElementById("etaday").style.display = "none";
+          }
+
+          if (blocksRemaining < 144 && blocksRemaining > 1) {
             document.getElementById("finalcountdown").style.display = "block";
             document.getElementById("finalcountdown").autoplay = true;
           } else {
             document.getElementById("finalcountdown").style.display = "none";
             document.getElementById("finalcountdown").autoplay = false;
+          }
+
+          if (blocksRemaining < 4464 && blocksRemaining >= 144) {
+            document.getElementById("cartman").style.display = "block";
+            document.getElementById("cartman").autoplay = true;
+          } else {
+            document.getElementById("cartman").style.display = "none";
+            document.getElementById("cartman").autoplay = false;
           }
         } else {
           showTimesUp();
@@ -327,6 +339,9 @@
 
         document.getElementById("finalcountdown").style.display = "none";
         document.getElementById("finalcountdown").autoplay = false;
+
+        document.getElementById("cartman").style.display = "none";
+        document.getElementById("cartman").autoplay = false;
 
         document.getElementById("blocksremaining").style.display = "none";
         document.getElementById("etaday").style.display = "none";
