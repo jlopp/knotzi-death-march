@@ -147,6 +147,11 @@
                 You're missing out because your browser does not support the video tag!
               </video>
 
+              <video loop controls muted playsinline id="misfire" width="100%" style="display: none">
+                <source src="media/misfire.mp4" type="video/mp4" />
+                You're missing out because your browser does not support the video tag!
+              </video>
+
               <video loop controls muted playsinline id="finalcountdown" width="100%" style="display: none">
                 <source src="media/anticipation.mp4" type="video/mp4" />
                 You're missing out because your browser does not support the video tag!
@@ -257,7 +262,15 @@
             document.getElementById("finalcountdown").autoplay = false;
           }
 
-          if (blocksRemaining < 4464 && blocksRemaining >= 144) {
+          if (blocksRemaining < 2016 && blocksRemaining >= 144) {
+            document.getElementById("misfire").style.display = "block";
+            document.getElementById("misfire").autoplay = true;
+          } else {
+            document.getElementById("misfire").style.display = "none";
+            document.getElementById("misfire").autoplay = false;
+          }
+
+          if (blocksRemaining < 4464 && blocksRemaining >= 2016) {
             document.getElementById("cartman").style.display = "block";
             document.getElementById("cartman").autoplay = true;
           } else {
@@ -342,6 +355,9 @@
 
         document.getElementById("cartman").style.display = "none";
         document.getElementById("cartman").autoplay = false;
+
+        document.getElementById("misfire").style.display = "none";
+        document.getElementById("misfire").autoplay = false;
 
         document.getElementById("blocksremaining").style.display = "none";
         document.getElementById("etaday").style.display = "none";
