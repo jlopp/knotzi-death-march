@@ -110,9 +110,9 @@
                 <a href="https://blog.lopp.net/a-laymans-guide-to-bip-110/">A Layman's Guide to BIP-110</a> and
                 <a href="https://blog.lopp.net/knot-a-serious-project/">It's Knot a Serious Project</a><br /><br />
                 To see the status of BIP-110 miner signaling, check
-                <a href="https://wickedsmartbitcoin.com/bip110_signaling">this chart</a>.<br />
+                <a href="https://wickedsmartbitcoin.com/bip110_signaling">this chart</a>.<br /><br />
                 To compare current block heights reported by different node implementations, check
-                <a href="https://bitnod.es/">bitnod.es</a>.
+                <a href="https://bitnod.es/">bitnod.es</a>.<br />
               </p>
             </div>
           </div>
@@ -142,8 +142,18 @@
                 </div>
               </div>
 
+              <video loop controls muted playsinline id="anticipation" width="100%" style="display: none">
+                <source src="media/anticipation.mp4" type="video/mp4" />
+                You're missing out because your browser does not support the video tag!
+              </video>
+
               <video loop controls muted playsinline id="cartman" width="100%" style="display: none">
                 <source src="media/cartman.mp4" type="video/mp4" />
+                You're missing out because your browser does not support the video tag!
+              </video>
+
+              <video loop controls muted playsinline id="chestthump" width="100%" style="display: none">
+                <source src="media/chestthump.mp4" type="video/mp4" />
                 You're missing out because your browser does not support the video tag!
               </video>
 
@@ -152,17 +162,22 @@
                 You're missing out because your browser does not support the video tag!
               </video>
 
-              <video loop controls muted playsinline id="finalcountdown" width="100%" style="display: none">
-                <source src="media/anticipation.mp4" type="video/mp4" />
+              <video loop controls muted playsinline id="mixology" width="100%" style="display: none">
+                <source src="media/mixology.mp4" type="video/mp4" />
                 You're missing out because your browser does not support the video tag!
               </video>
 
-              <video loop controls muted playsinline id="timesup" width="100%" style="display: none">
+              <video loop controls muted playsinline id="splat" width="100%" style="display: none">
                 <source src="media/splat.mp4" type="video/mp4" />
                 You're missing out because your browser does not support the video tag!
               </video>
 
-              <h1 style="color: red; font-weight: bold" id="blocksremaining"></h1>
+              <video loop controls muted playsinline id="yourefired" width="100%" style="display: none">
+                <source src="media/yourefired.mp4" type="video/mp4" />
+                You're missing out because your browser does not support the video tag!
+              </video>
+
+              <h2 style="color: red; font-weight: bold" id="blocksremaining"></h2>
               <h2 style="color: red; font-weight: bold" id="etaday"></h2>
             </div>
           </div>
@@ -231,54 +246,56 @@
         var blocksRemaining = forkBlockHeight - currentHeight;
         secondsRemaining = blocksRemaining * 10 * 60;
 
-        if (blocksRemaining > 0) {
-          document.getElementById("blocksremaining").style.display = "block";
-          document.getElementById("etaday").style.display = "block";
+        if (blocksRemaining <= 0) {
+          showTimesUp();
+          return;
+        }
+
+        document.getElementById("blocksremaining").style.display = "block";
+        document.getElementById("etaday").style.display = "block";
+
+        document.getElementById("blocksremaining").innerHTML =
+          "T-minus " + blocksRemaining.toLocaleString() + " blocks remaining.";
+
+        document.getElementById("countdown").style.display = "block";
+
+        var deadline = new Date(Date.now() + secondsRemaining * 1000);
+
+        document.getElementById("etaday").innerHTML = "Fork ETA: " + deadline.toLocaleString() + "<br/><br/>";
+
+        // Do not destroy/recreate the Flip DOM.
+        // Just restart the countdown controller against the existing Tick instance.
+        startOrResetCountdown();
+
+        if (blocksRemaining === 1) {
+          countdownGeneration += 1;
+
+          if (tickCounter && typeof tickCounter.stop === "function") {
+            tickCounter.stop();
+          }
+
+          tickCounter = null;
 
           document.getElementById("blocksremaining").innerHTML =
-            "T-minus " + blocksRemaining.toLocaleString() + " blocks remaining.";
+            "ONE FINAL BLOCK REMAINING!!!";
 
-          document.getElementById("countdown").style.display = "block";
+          document.getElementById("blocksremaining").style.display = "block";
+          document.getElementById("countdown").style.display = "none";
+          document.getElementById("etaday").style.display = "none";
 
-          var deadline = new Date(Date.now() + secondsRemaining * 1000);
-
-          document.getElementById("etaday").innerHTML = "Fork ETA: " + deadline.toLocaleString() + "<br/><br/>";
-
-          // Do not destroy/recreate the Flip DOM.
-          // Just restart the countdown controller against the existing Tick instance.
-          startOrResetCountdown();
-
-          if (blocksRemaining === 1) {
-            document.getElementById("blocksremaining").innerHTML = "ONE FINAL BLOCK REMAINING!!!";
-            document.getElementById("countdown").style.display = "none";
-            document.getElementById("etaday").style.display = "none";
-          }
-
-          if (blocksRemaining < 144 && blocksRemaining > 1) {
-            document.getElementById("finalcountdown").style.display = "block";
-            document.getElementById("finalcountdown").autoplay = true;
-          } else {
-            document.getElementById("finalcountdown").style.display = "none";
-            document.getElementById("finalcountdown").autoplay = false;
-          }
-
-          if (blocksRemaining < 2016 && blocksRemaining >= 144) {
-            document.getElementById("misfire").style.display = "block";
-            document.getElementById("misfire").autoplay = true;
-          } else {
-            document.getElementById("misfire").style.display = "none";
-            document.getElementById("misfire").autoplay = false;
-          }
-
-          if (blocksRemaining < 4464 && blocksRemaining >= 2016) {
-            document.getElementById("cartman").style.display = "block";
-            document.getElementById("cartman").autoplay = true;
-          } else {
-            document.getElementById("cartman").style.display = "none";
-            document.getElementById("cartman").autoplay = false;
-          }
-        } else {
-          showTimesUp();
+          showVideo(null);
+        } else if (blocksRemaining < 144) {
+          showVideo("misfire");
+        } else if (blocksRemaining < 288) {
+          showVideo("yourefired");
+        } else if (blocksRemaining < 500) {
+          showVideo("mixology");
+        } else if (blocksRemaining < 1008) {
+          showVideo("chestthump");
+        } else if (blocksRemaining < 2016) {
+          showVideo("anticipation");
+        } else if (blocksRemaining < 4464) {
+          showVideo("cartman");
         }
       }
 
@@ -342,28 +359,80 @@
           if (thisGeneration !== countdownGeneration) {
             return;
           }
-          showTimesUp();
         };
+      }
+
+      const videoIds = [
+        "anticipation",
+        "cartman",
+        "chestthump",
+        "misfire",
+        "mixology",
+        "splat",
+        "yourefired"
+      ];
+
+      function getElement(id) {
+        const element = document.getElementById(id);
+
+        if (!element) {
+          console.error("Missing required element:", id);
+        }
+
+        return element;
+      }
+
+      function hideAllVideos() {
+        videoIds.forEach(function (id) {
+          const video = getElement(id);
+
+          if (!video) {
+            return;
+          }
+
+          video.style.display = "none";
+          video.pause();
+
+          try {
+            video.currentTime = 0;
+          } catch (error) {
+            // Some media may not be seekable until metadata has loaded.
+          }
+        });
+      }
+
+      function showVideo(name) {
+        hideAllVideos();
+
+        // null or an empty string means no video should be shown.
+        if (!name) {
+          return;
+        }
+
+        const video = getElement(name);
+
+        if (!video) {
+          return;
+        }
+
+        video.style.display = "block";
+
+        const playPromise = video.play();
+
+        if (playPromise && typeof playPromise.catch === "function") {
+          playPromise.catch(function (error) {
+            console.warn("Video playback was blocked:", name, error);
+          });
+        }
       }
 
       function showTimesUp() {
         countdownGeneration += 1;
-        document.getElementById("countdown").style.display = "none";
-
-        document.getElementById("finalcountdown").style.display = "none";
-        document.getElementById("finalcountdown").autoplay = false;
-
-        document.getElementById("cartman").style.display = "none";
-        document.getElementById("cartman").autoplay = false;
-
-        document.getElementById("misfire").style.display = "none";
-        document.getElementById("misfire").autoplay = false;
-
         document.getElementById("blocksremaining").style.display = "none";
+        document.getElementById("countdown").style.display = "none";
         document.getElementById("etaday").style.display = "none";
 
-        document.getElementById("timesup").style.display = "block";
-        document.getElementById("timesup").autoplay = true;
+        showVideo("splat");
       }
 
       updateChaintip();
