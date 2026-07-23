@@ -221,7 +221,7 @@
       }
 
       /* Pause animations when countdown is hidden */
-      #countdown[style*="display: none"] .tick-flip {
+      #countdown[hidden] .tick-flip {
         animation-play-state: paused !important;
       }
 
@@ -256,6 +256,10 @@
         border: 1px solid rgba(220, 38, 38, 0.2);
       }
 
+      [hidden] {
+        display: none !important;
+      }
+
       /* Video Container */
       .video-container {
         position: relative;
@@ -277,6 +281,11 @@
 
       video[poster] {
         object-fit: cover;
+      }
+
+      .video-compact {
+        width: 50%;
+        margin-inline: auto;
       }
 
       /* Grid for Videos */
@@ -331,6 +340,10 @@
 
         .video-grid {
           grid-template-columns: 1fr;
+        }
+
+        .video-compact {
+          width: 100%;
         }
       }
 
@@ -409,7 +422,9 @@
             data-credits="false"
             data-did-init="startCountdown"
             id="countdown"
-            style="display: none"
+            role="timer"
+            aria-live="off"
+            hidden
           >
             <div
               data-repeat="true"
@@ -427,44 +442,44 @@
 
           <!-- Video Container -->
           <div class="video-container">
-            <video loop controls muted playsinline id="anticipation" style="display: none">
+            <video loop controls muted playsinline preload="metadata" id="anticipation" style="display: none">
               <source src="media/anticipation.mp4" type="video/mp4" />
               <p>Your browser does not support the video tag. Please upgrade to a modern browser.</p>
             </video>
 
-            <video loop controls muted playsinline id="cartman" style="display: none">
+            <video loop controls muted playsinline preload="metadata" id="cartman" style="display: none">
               <source src="media/cartman.mp4" type="video/mp4" />
               <p>Your browser does not support the video tag. Please upgrade to a modern browser.</p>
             </video>
 
-            <video loop controls muted playsinline id="chestthump" style="display: none">
+            <video loop controls muted playsinline preload="metadata" id="chestthump" style="display: none">
               <source src="media/chestthump.mp4" type="video/mp4" />
               <p>Your browser does not support the video tag. Please upgrade to a modern browser.</p>
             </video>
 
-            <video loop controls muted playsinline id="misfire" style="display: none">
+            <video loop controls muted playsinline preload="metadata" id="misfire" style="display: none">
               <source src="media/misfire.mp4" type="video/mp4" />
               <p>Your browser does not support the video tag. Please upgrade to a modern browser.</p>
             </video>
 
-            <video loop controls muted playsinline id="mixology" style="width: 50%;margin:auto; display: none">
+            <video loop controls muted playsinline preload="metadata" id="mixology" class="video-compact" style="display: none">
               <source src="media/mixology.mp4" type="video/mp4" />
               <p>Your browser does not support the video tag. Please upgrade to a modern browser.</p>
             </video>
 
-            <video loop controls muted playsinline id="splat" style="display: none">
+            <video loop controls muted playsinline preload="metadata" id="splat" style="display: none">
               <source src="media/splat.mp4" type="video/mp4" />
               <p>Your browser does not support the video tag. Please upgrade to a modern browser.</p>
             </video>
 
-            <video loop controls muted playsinline id="yourefired" style="display: none">
+            <video loop controls muted playsinline preload="metadata" id="yourefired" style="display: none">
               <source src="media/yourefired.mp4" type="video/mp4" />
               <p>Your browser does not support the video tag. Please upgrade to a modern browser.</p>
             </video>
           </div>
 
-          <div id="blocksremaining" class="status status-danger"></div>
-          <div id="etaday" class="status status-danger"></div>
+          <div id="blocksremaining" class="status status-danger" role="status" aria-live="polite" hidden></div>
+          <div id="etaday" class="status status-danger" hidden></div>
         </section>
       </main>
 
@@ -489,15 +504,31 @@
         throw new Error('Tick library not loaded');
       }
 
-      // State variables with clear initialization
+      // ---------------------------------------------------------------------
+      // Application state
+      // ---------------------------------------------------------------------
+      // The chain height and estimated duration are kept separately because
+      // the height comes from the API while the duration advances locally.
       let currentHeight = null;
       let secondsRemaining = null;
+
+      // Tick exposes two different objects: the DOM-facing Tick instance and
+      // the countdown counter that emits a new value every second.
       let tickCounter = null;
       let tickInstance = null;
+
+      // Each replacement counter receives a generation number. Even if the
+      // library delivers a callback after disposal, an old generation cannot
+      // write stale values into the current display.
       let countdownGeneration = 0;
+
+      // Prevent overlapping API calls; a slow request must finish or time out
+      // before the next polling attempt starts.
       let updatePending = false;
       let updateIntervalId = null;
       let isInitialized = false;
+
+      // Tracks the one video that should resume after tab visibility changes.
       let lastShownVideo = null;
 
       const forkBlockHeight = 961632;
@@ -508,7 +539,8 @@
         'misfire', 'mixology', 'splat', 'yourefired'
       ];
 
-      // Cache DOM elements to avoid repeated lookups
+      // Cache stable DOM references once. None of these elements are replaced
+      // during normal operation.
       const domElements = {};
 
       function cacheDomElements() {
@@ -535,16 +567,19 @@
        * Fetches the current chain tip from mempool.space
        */
       function updateChaintip() {
-        // Prevent concurrent updates
+        // setInterval and visibilitychange can fire close together. Sharing
+        // this lock prevents their requests from racing each other.
         if (updatePending) return;
-        updatePending = true;
 
-        // no need to poll for more updates
+        // The terminal state is permanent for this page session, so polling
+        // after activation would only waste network and CPU resources.
         if (currentHeight >= forkBlockHeight) {
           return;
         }
+        updatePending = true;
 
-        // timeout to prevent hanging requests
+        // Abort a stalled request so updatePending is eventually released and
+        // a future polling cycle gets another opportunity to recover.
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
@@ -557,10 +592,13 @@
             return response.text();
           })
           .then(text => {
-            const height = parseInt(text, 10);
-            if (isNaN(height)) {
+            // Do not use parseInt here: parseInt('123oops', 10) returns 123 and
+            // would silently convert a corrupt API response into a valid tip.
+            const normalizedHeight = text.trim();
+            if (!/^\d+$/.test(normalizedHeight)) {
               throw new Error('Invalid height: ' + text);
             }
+            const height = Number(normalizedHeight);
             processNewHeight(height);
           })
           .catch(err => {
@@ -569,7 +607,7 @@
             // Show error to user if fetch fails repeatedly
             if (currentHeight === null) {
               if (domElements.blocksRemaining) {
-                domElements.blocksRemaining.style.display = 'block';
+                domElements.blocksRemaining.hidden = false;
                 domElements.blocksRemaining.textContent = 'Error loading chain data. Retrying...';
               }
             }
@@ -589,7 +627,7 @@
           return;
         }
 
-        // Skip if height hasn't changed
+        // Avoid restarting the countdown every minute when no block arrived.
         if (currentHeight !== null && height === currentHeight) {
           return;
         }
@@ -603,25 +641,28 @@
           return;
         }
 
+        // Bitcoin targets ten minutes per block. This is an estimate rather
+        // than a prediction and is recalculated whenever the tip changes.
         secondsRemaining = blocksRemaining * 10 * 60;
 
         // Update displays
         if (domElements.blocksRemaining) {
-          domElements.blocksRemaining.style.display = 'block';
+          domElements.blocksRemaining.hidden = false;
           domElements.blocksRemaining.textContent = 'T-minus ' + blocksRemaining.toLocaleString() + ' blocks remaining.';
         }
 
         if (domElements.etaDay) {
-          domElements.etaDay.style.display = 'block';
+          domElements.etaDay.hidden = false;
           const deadline = new Date(Date.now() + secondsRemaining * 1000);
           domElements.etaDay.textContent = 'Fork ETA: ' + deadline.toLocaleString();
         }
 
         if (domElements.countdown) {
-          domElements.countdown.style.display = 'block';
+          domElements.countdown.hidden = false;
         }
 
-        // Only start countdown if tickInstance is ready, otherwise queue it
+        // The API response and Tick's DOM initialization are asynchronous and
+        // may complete in either order. startCountdown handles the other order.
         if (tickInstance) {
           startOrResetCountdown(new Date(Date.now() + secondsRemaining * 1000));
         } else {
@@ -661,6 +702,8 @@
        * Called by Flip library when initialized
        */
       function startCountdown(tick) {
+        // data-did-init should run once, but guard against accidental duplicate
+        // initialization so two independent counters are never created.
         if (isInitialized) {
           console.warn('startCountdown called multiple times');
           return;
@@ -676,6 +719,40 @@
           // Initial fetch
           updateChaintip();
         }
+      }
+
+      /**
+       * Permanently detach and stop a Tick countdown.
+       *
+       * Tick.count.down() initializes its timer asynchronously. A counter may
+       * therefore need to be disposed before counter.timer exists.
+       */
+      function disposeTickCounter(counter) {
+        if (!counter) return;
+
+        // Detach callbacks before stopping the timer. A zero-delay callback may
+        // already be queued in Tick and cannot always be cancelled directly.
+        counter.onupdate = function () {};
+        counter.onended = function () {};
+
+        const stopTimer = function () {
+          if (counter.timer && typeof counter.timer.stop === 'function') {
+            counter.timer.stop();
+          }
+        };
+
+        // This is the normal path after Tick has completed initialization.
+        if (counter.timer) {
+          stopTimer();
+          return;
+        }
+
+        // Tick creates counter.timer asynchronously. It invokes onload and then
+        // starts that timer in the same call stack. A microtask therefore runs
+        // late enough to see the timer, but before its first scheduled tick.
+        counter.onload = function () {
+          Promise.resolve().then(stopTimer);
+        };
       }
 
       /**
@@ -698,16 +775,12 @@
           return;
         }
 
-        // Clean up previous counter
-        if (tickCounter) {
-          if (typeof tickCounter.stop === 'function') {
-            tickCounter.stop();
-          }
-          tickCounter = null;
-        }
-
+        // Change the generation first so a callback already queued by the old
+        // counter becomes stale before we attempt to stop its timer.
         countdownGeneration++;
         const thisGeneration = countdownGeneration;
+        disposeTickCounter(tickCounter);
+        tickCounter = null;
 
         // Create new countdown
         try {
@@ -716,19 +789,26 @@
           });
         } catch (err) {
           console.error('Failed to create countdown:', err);
+          if (domElements.countdown) {
+            domElements.countdown.hidden = true;
+          }
+          if (domElements.etaDay) {
+            domElements.etaDay.hidden = false;
+          }
           return;
         }
 
-        // Throttle updates to reduce CPU usage
+        // These values belong to this counter only and reset on every restart.
         let lastValueStr = '';
         let lastAriaUpdate = 0;
         
         tickCounter.onupdate = function (value) {
-          // Skip if this is a stale callback from a previous generation
+          // This is the second line of defense after disposeTickCounter().
           if (thisGeneration !== countdownGeneration) return;
           if (!tickInstance) return;
 
-          // Only update if value changed (reduces unnecessary DOM updates)
+          // Tick can emit the same formatted value more than once. Avoid
+          // scheduling redundant flip animations in that case.
           const valueStr = value.join('-');
           if (valueStr === lastValueStr) return;
           lastValueStr = valueStr;
@@ -740,7 +820,7 @@
             return;
           }
           
-          // Update ARIA label every 5 seconds to reduce DOM operations
+          // Screen-reader text does not need to be rewritten every second.
           const now = Date.now();
           if (now - lastAriaUpdate > 5000 && tickInstance.root) {
             lastAriaUpdate = now;
@@ -762,23 +842,19 @@
         countdownGeneration++;
         
         // Stop countdown
-        if (tickCounter) {
-          if (typeof tickCounter.stop === 'function') {
-            tickCounter.stop();
-          }
-          tickCounter = null;
-        }
+        disposeTickCounter(tickCounter);
+        tickCounter = null;
 
         if (domElements.blocksRemaining) {
-          domElements.blocksRemaining.style.display = 'block';
+          domElements.blocksRemaining.hidden = false;
           domElements.blocksRemaining.textContent = 'ONE FINAL BLOCK REMAINING!!!';
         }
 
         if (domElements.countdown) {
-          domElements.countdown.style.display = 'none';
+          domElements.countdown.hidden = true;
         }
         if (domElements.etaDay) {
-          domElements.etaDay.style.display = 'none';
+          domElements.etaDay.hidden = true;
         }
 
         showVideo(null);
@@ -788,6 +864,8 @@
        * Hide all videos and pause them
        */
       function hideAllVideos() {
+        // Hidden videos must be paused explicitly; display:none alone does not
+        // stop media decoding or audio/video playback in every browser.
         videoIds.forEach(id => {
           const video = domElements.videos[id];
           if (!video) return;
@@ -851,7 +929,7 @@
        * Show "time's up" state
        */
       function showTimesUp() {
-        // Prevent multiple calls
+        // A negative generation doubles as an idempotent terminal-state flag.
         if (countdownGeneration < 0) return; // Negative generation = already ended
 
         countdownGeneration = -1; // Mark as ended
@@ -863,23 +941,19 @@
         }
 
         // Stop countdown
-        if (tickCounter) {
-          if (typeof tickCounter.stop === 'function') {
-            tickCounter.stop();
-          }
-          tickCounter = null;
-        }
+        disposeTickCounter(tickCounter);
+        tickCounter = null;
 
         if (domElements.blocksRemaining) {
-          domElements.blocksRemaining.style.display = 'block';
+          domElements.blocksRemaining.hidden = false;
           domElements.blocksRemaining.textContent = "Time's up! The fork has occurred.";
         }
 
         if (domElements.countdown) {
-          domElements.countdown.style.display = 'none';
+          domElements.countdown.hidden = true;
         }
         if (domElements.etaDay) {
-          domElements.etaDay.style.display = 'none';
+          domElements.etaDay.hidden = true;
         }
 
         showVideo('splat');
@@ -887,6 +961,8 @@
 
       // Visibility API - pause/resume appropriately
       document.addEventListener('visibilitychange', () => {
+        // Browsers may throttle timers in background tabs. Refreshing the tip
+        // on return ensures the estimate catches up immediately.
         if (document.hidden) {
           // Pause videos when tab hidden to save resources
           videoIds.forEach(id => {
@@ -913,9 +989,8 @@
         if (updateIntervalId) {
           clearInterval(updateIntervalId);
         }
-        if (tickCounter && typeof tickCounter.stop === 'function') {
-          tickCounter.stop();
-        }
+        disposeTickCounter(tickCounter);
+        tickCounter = null;
         // Pause all videos
         videoIds.forEach(id => {
           const video = domElements.videos[id];
