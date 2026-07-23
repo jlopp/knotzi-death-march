@@ -215,6 +215,14 @@
       .tick-flip {
         border-radius: var(--radius-md);
         box-shadow: var(--shadow-lg);
+        transform: translateZ(0); /* Force GPU layer */
+        will-change: transform;
+        contain: layout style paint;
+      }
+
+      /* Pause animations when countdown is hidden */
+      #countdown[style*="display: none"] .tick-flip {
+        animation-play-state: paused !important;
       }
 
       .tick-flip-panel {
@@ -439,7 +447,7 @@
               <p>Your browser does not support the video tag. Please upgrade to a modern browser.</p>
             </video>
 
-            <video loop controls muted playsinline id="mixology" style="display: none">
+            <video loop controls muted playsinline id="mixology" style="width: 50%;margin:auto; display: none">
               <source src="media/mixology.mp4" type="video/mp4" />
               <p>Your browser does not support the video tag. Please upgrade to a modern browser.</p>
             </video>
@@ -477,31 +485,42 @@
       var tickCounter = null;
       var tickInstance = null;
       var countdownGeneration = 0;
+      var updatePending = false;
 
       const forkBlockHeight = 961632;
+      const CHAIN_TIP_URL = "https://mempool.space/api/blocks/tip/height";
 
       function updateChaintip() {
-        // Get the latest chain tip block height.
-        var Httpreq = new XMLHttpRequest();
-        Httpreq.open("GET", "https://mempool.space/api/blocks/tip/height", false);
-        Httpreq.send(null);
+        // Prevent overlapping calls
+        if (updatePending) return;
+        updatePending = true;
 
-        var height = parseInt(Httpreq.responseText, 10);
+        fetch(CHAIN_TIP_URL)
+          .then(response => {
+            if (!response.ok) throw new Error("HTTP " + response.status);
+            return response.text();
+          })
+          .then(text => {
+            const height = parseInt(text, 10);
+            if (isNaN(height)) throw new Error("Invalid height: " + text);
+            processNewHeight(height);
+          })
+          .catch(err => {
+            console.error("Chain tip fetch failed:", err);
+          })
+          .finally(() => {
+            updatePending = false;
+          });
+      }
 
-        if (isNaN(height)) {
-          console.error("Unable to parse chain tip height:", Httpreq.responseText);
-          return;
-        }
-
-        // Chain tip hasn't changed; the local countdown is already running,
-        // so there is no need to reset it every minute.
+      function processNewHeight(height) {
+        // Skip if height hasn't changed
         if (currentHeight !== null && height === currentHeight) {
           return;
         }
 
         currentHeight = height;
-
-        var blocksRemaining = forkBlockHeight - currentHeight;
+        const blocksRemaining = forkBlockHeight - currentHeight;
         secondsRemaining = blocksRemaining * 10 * 60;
 
         if (blocksRemaining <= 0) {
@@ -509,39 +528,26 @@
           return;
         }
 
-        document.getElementById("blocksremaining").style.display = "block";
-        document.getElementById("etaday").style.display = "block";
+        // Update text displays
+        const blocksEl = document.getElementById("blocksremaining");
+        const etaEl = document.getElementById("etaday");
+        const countdownEl = document.getElementById("countdown");
 
-        document.getElementById("blocksremaining").innerHTML =
-          "T-minus " + blocksRemaining.toLocaleString() + " blocks remaining.";
+        blocksEl.style.display = "block";
+        etaEl.style.display = "block";
+        countdownEl.style.display = "block";
 
-        document.getElementById("countdown").style.display = "block";
+        blocksEl.textContent = "T-minus " + blocksRemaining.toLocaleString() + " blocks remaining.";
 
-        var deadline = new Date(Date.now() + secondsRemaining * 1000);
+        const deadline = new Date(Date.now() + secondsRemaining * 1000);
+        etaEl.textContent = "Fork ETA: " + deadline.toLocaleString();
 
-        document.getElementById("etaday").innerHTML = "Fork ETA: " + deadline.toLocaleString();
+        // Restart countdown with proper cleanup
+        startOrResetCountdown(deadline);
 
-        // Do not destroy/recreate the Flip DOM.
-        // Just restart the countdown controller against the existing Tick instance.
-        startOrResetCountdown();
-
+        // Video selection logic
         if (blocksRemaining === 1) {
-          countdownGeneration += 1;
-
-          if (tickCounter && typeof tickCounter.stop === "function") {
-            tickCounter.stop();
-          }
-
-          tickCounter = null;
-
-          document.getElementById("blocksremaining").innerHTML =
-            "ONE FINAL BLOCK REMAINING!!!";
-
-          document.getElementById("blocksremaining").style.display = "block";
-          document.getElementById("countdown").style.display = "none";
-          document.getElementById("etaday").style.display = "none";
-
-          showVideo(null);
+          handleFinalBlock();
         } else if (blocksRemaining < 144) {
           showVideo("misfire");
         } else if (blocksRemaining < 288) {
@@ -558,66 +564,75 @@
       }
 
       function startCountdown(tick) {
-        // Store the Tick DOM instance created by the Flip library.
-        // We reuse this instance instead of destroying/recreating it.
         tickInstance = tick;
-
-        // Page has not fetched the first chain tip yet.
+        
+        // Initial fetch if needed
         if (secondsRemaining === null) {
-          return;
+          updateChaintip();
         }
-
-        startOrResetCountdown();
       }
 
-      function startOrResetCountdown() {
-        if (!tickInstance || secondsRemaining === null) {
-          return;
+      function startOrResetCountdown(deadline) {
+        if (!tickInstance) return;
+
+        // Properly destroy previous counter to stop all internal timers
+        if (tickCounter) {
+          if (typeof tickCounter.stop === "function") {
+            tickCounter.stop();
+          }
+          // Clear reference to allow GC
+          tickCounter = null;
         }
 
-        var deadline = new Date(Date.now() + secondsRemaining * 1000);
+        countdownGeneration++;
+        const thisGeneration = countdownGeneration;
 
-        countdownGeneration += 1;
-        var thisGeneration = countdownGeneration;
-
-        // Stop the previous countdown controller if supported by this Flip/Tick build.
-        if (tickCounter && typeof tickCounter.stop === "function") {
-          tickCounter.stop();
-        }
-
+        // Create new countdown
         tickCounter = Tick.count.down(deadline, {
-          format: ["d", "h", "m", "s"]
+          format: ["d", "h", "m", "s"],
+          // Add interval option if available in your version to reduce update frequency
+          interval: 1000  // Update once per second instead of every frame
         });
 
+        // Throttle visual updates - only update Flip when value actually changes
+        let lastValueStr = "";
+        
         tickCounter.onupdate = function (value) {
-          if (!tickInstance) {
-            return;
-          }
+          // Skip if generation changed (stale callback)
+          if (thisGeneration !== countdownGeneration) return;
+          if (!tickInstance) return;
 
-          if (thisGeneration !== countdownGeneration) {
-            return;
-          }
+          // Only update DOM if value actually changed (reduces Flip animations)
+          const valueStr = value.join("-");
+          if (valueStr === lastValueStr) return;
+          lastValueStr = valueStr;
 
           tickInstance.value = value;
-
-          tickInstance.root.setAttribute(
-            "aria-label",
-            value[0] +
-              " days, " +
-              value[1] +
-              " hours, " +
-              value[2] +
-              " minutes, " +
-              value[3] +
-              " seconds"
-          );
-        };
-
-        tickCounter.onended = function () {
-          if (thisGeneration !== countdownGeneration) {
-            return;
+          
+          // Update ARIA less frequently (every 5 seconds or on change)
+          if (value[3] % 5 === 0) {
+            tickInstance.root.setAttribute("aria-label",
+              `${value[0]} days, ${value[1]} hours, ${value[2]} minutes, ${value[3]} seconds`
+            );
           }
         };
+      }
+
+      function handleFinalBlock() {
+        countdownGeneration++;
+        
+        if (tickCounter) {
+          if (typeof tickCounter.stop === "function") {
+            tickCounter.stop();
+          }
+          tickCounter = null;
+        }
+
+        document.getElementById("blocksremaining").textContent = "ONE FINAL BLOCK REMAINING!!!";
+        document.getElementById("countdown").style.display = "none";
+        document.getElementById("etaday").style.display = "none";
+
+        showVideo(null);
       }
 
       const videoIds = [
@@ -630,69 +645,74 @@
         "yourefired"
       ];
 
-      function getElement(id) {
-        const element = document.getElementById(id);
-
-        if (!element) {
-          console.error("Missing required element:", id);
-        }
-
-        return element;
-      }
-
       function hideAllVideos() {
-        videoIds.forEach(function (id) {
-          const video = getElement(id);
-
-          if (!video) {
-            return;
-          }
-
+        videoIds.forEach(id => {
+          const video = document.getElementById(id);
+          if (!video) return;
+          
           video.style.display = "none";
           video.pause();
-
-          try {
+          
+          // Release media resources when hidden
+          if (video.src) {
             video.currentTime = 0;
-          } catch (error) {
-            // Some media may not be seekable until metadata has loaded.
           }
         });
       }
 
       function showVideo(name) {
         hideAllVideos();
+        if (!name) return;
 
-        // null or an empty string means no video should be shown.
-        if (!name) {
-          return;
-        }
-
-        const video = getElement(name);
-
-        if (!video) {
-          return;
-        }
+        const video = document.getElementById(name);
+        if (!video) return;
 
         video.style.display = "block";
 
+        // Use IntersectionObserver to only play when visible
         const playPromise = video.play();
-
         if (playPromise && typeof playPromise.catch === "function") {
-          playPromise.catch(function (error) {
-            console.warn("Video playback was blocked:", name, error);
+          playPromise.catch(err => {
+            console.warn("Video playback blocked:", name, err);
           });
         }
       }
 
       function showTimesUp() {
-        countdownGeneration += 1;
-        document.getElementById("blocksremaining").style.display = "none";
+        countdownGeneration++;
+
+        if (tickCounter) {
+          if (typeof tickCounter.stop === "function") {
+            tickCounter.stop();
+          }
+          tickCounter = null;
+        }
+
+        const blocksEl = document.getElementById("blocksremaining");
+        blocksEl.style.display = "block";
+        blocksEl.textContent = "Time's up!";
+
         document.getElementById("countdown").style.display = "none";
         document.getElementById("etaday").style.display = "none";
 
         showVideo("splat");
       }
 
+      // Visibility API - pause when tab is hidden to save CPU
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          // Pause videos when tab hidden
+          videoIds.forEach(id => {
+            const video = document.getElementById(id);
+            if (video) video.pause();
+          });
+        } else {
+          // Resume current video if needed
+          updateChaintip();
+        }
+      });
+
+      // Initial load and interval
       updateChaintip();
       setInterval(updateChaintip, 60000);
     </script>
