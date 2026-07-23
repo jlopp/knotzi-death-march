@@ -479,41 +479,116 @@
       </footer>
     </div>
 
-    <script>
-      var currentHeight = null;
-      var secondsRemaining = null;
-      var tickCounter = null;
-      var tickInstance = null;
-      var countdownGeneration = 0;
-      var updatePending = false;
+ <script>
+      'use strict';
+
+      // Check if required libraries loaded
+      if (typeof Tick === 'undefined') {
+        console.error('Critical: Tick library not loaded. Countdown will not function.');
+        document.body.innerHTML = '<div style="padding: 20px; text-align: center; color: red;">Error: Required countdown library failed to load. Please refresh the page.</div>';
+        throw new Error('Tick library not loaded');
+      }
+
+      // State variables with clear initialization
+      let currentHeight = null;
+      let secondsRemaining = null;
+      let tickCounter = null;
+      let tickInstance = null;
+      let countdownGeneration = 0;
+      let updatePending = false;
+      let updateIntervalId = null;
+      let isInitialized = false;
+      let lastShownVideo = null;
 
       const forkBlockHeight = 961632;
-      const CHAIN_TIP_URL = "https://mempool.space/api/blocks/tip/height";
+      const CHAIN_TIP_URL = 'https://mempool.space/api/blocks/tip/height';
 
+      const videoIds = [
+        'anticipation', 'cartman', 'chestthump', 
+        'misfire', 'mixology', 'splat', 'yourefired'
+      ];
+
+      // Cache DOM elements to avoid repeated lookups
+      const domElements = {};
+
+      function cacheDomElements() {
+        domElements.countdown = document.getElementById('countdown');
+        domElements.blocksRemaining = document.getElementById('blocksremaining');
+        domElements.etaDay = document.getElementById('etaday');
+
+        // Cache video elements with null checks
+        domElements.videos = {};
+        videoIds.forEach(id => {
+          const el = document.getElementById(id);
+          if (el) {
+            domElements.videos[id] = el;
+          } else {
+            console.warn('Video element not found:', id);
+          }
+        });
+      }
+
+      // Call cacheDomElements immediately
+      cacheDomElements();
+
+      /**
+       * Fetches the current chain tip from mempool.space
+       */
       function updateChaintip() {
-        // Prevent overlapping calls
+        // Prevent concurrent updates
         if (updatePending) return;
         updatePending = true;
 
-        fetch(CHAIN_TIP_URL)
+        // no need to poll for more updates
+        if (currentHeight >= forkBlockHeight) {
+          return;
+        }
+
+        // timeout to prevent hanging requests
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+        fetch(CHAIN_TIP_URL, { signal: controller.signal })
           .then(response => {
-            if (!response.ok) throw new Error("HTTP " + response.status);
+            clearTimeout(timeoutId);
+            if (!response.ok) {
+              throw new Error('HTTP ' + response.status);
+            }
             return response.text();
           })
           .then(text => {
             const height = parseInt(text, 10);
-            if (isNaN(height)) throw new Error("Invalid height: " + text);
+            if (isNaN(height)) {
+              throw new Error('Invalid height: ' + text);
+            }
             processNewHeight(height);
           })
           .catch(err => {
-            console.error("Chain tip fetch failed:", err);
+            clearTimeout(timeoutId);
+            console.error('Chain tip fetch failed:', err);
+            // Show error to user if fetch fails repeatedly
+            if (currentHeight === null) {
+              if (domElements.blocksRemaining) {
+                domElements.blocksRemaining.style.display = 'block';
+                domElements.blocksRemaining.textContent = 'Error loading chain data. Retrying...';
+              }
+            }
           })
           .finally(() => {
             updatePending = false;
           });
       }
 
+      /**
+       * Process new block height and update UI
+       */
       function processNewHeight(height) {
+        // Validate height is reasonable (Bitcoin block height should be positive and not in the distant future)
+        if (!Number.isFinite(height) || height < 0 || height > 9999999) {
+          console.error('Invalid block height:', height);
+          return;
+        }
+
         // Skip if height hasn't changed
         if (currentHeight !== null && height === currentHeight) {
           return;
@@ -521,66 +596,113 @@
 
         currentHeight = height;
         const blocksRemaining = forkBlockHeight - currentHeight;
-        secondsRemaining = blocksRemaining * 10 * 60;
 
+        // Handle case where we're already past the fork block
         if (blocksRemaining <= 0) {
           showTimesUp();
           return;
         }
 
-        // Update text displays
-        const blocksEl = document.getElementById("blocksremaining");
-        const etaEl = document.getElementById("etaday");
-        const countdownEl = document.getElementById("countdown");
+        secondsRemaining = blocksRemaining * 10 * 60;
 
-        blocksEl.style.display = "block";
-        etaEl.style.display = "block";
-        countdownEl.style.display = "block";
+        // Update displays
+        if (domElements.blocksRemaining) {
+          domElements.blocksRemaining.style.display = 'block';
+          domElements.blocksRemaining.textContent = 'T-minus ' + blocksRemaining.toLocaleString() + ' blocks remaining.';
+        }
 
-        blocksEl.textContent = "T-minus " + blocksRemaining.toLocaleString() + " blocks remaining.";
+        if (domElements.etaDay) {
+          domElements.etaDay.style.display = 'block';
+          const deadline = new Date(Date.now() + secondsRemaining * 1000);
+          domElements.etaDay.textContent = 'Fork ETA: ' + deadline.toLocaleString();
+        }
 
-        const deadline = new Date(Date.now() + secondsRemaining * 1000);
-        etaEl.textContent = "Fork ETA: " + deadline.toLocaleString();
+        if (domElements.countdown) {
+          domElements.countdown.style.display = 'block';
+        }
 
-        // Restart countdown with proper cleanup
-        startOrResetCountdown(deadline);
+        // Only start countdown if tickInstance is ready, otherwise queue it
+        if (tickInstance) {
+          startOrResetCountdown(new Date(Date.now() + secondsRemaining * 1000));
+        } else {
+          // Queue the countdown start for when tickInstance is ready
+          console.log('Tick instance not ready yet, will start countdown when initialized');
+        }
 
         // Video selection logic
+        selectVideoForBlockCount(blocksRemaining);
+      }
+
+      /**
+       * Select appropriate video based on blocks remaining
+       */
+      function selectVideoForBlockCount(blocksRemaining) {
         if (blocksRemaining === 1) {
           handleFinalBlock();
         } else if (blocksRemaining < 144) {
-          showVideo("misfire");
+          showVideo('misfire');
         } else if (blocksRemaining < 288) {
-          showVideo("yourefired");
+          showVideo('yourefired');
         } else if (blocksRemaining < 500) {
-          showVideo("mixology");
+          showVideo('mixology');
         } else if (blocksRemaining < 1008) {
-          showVideo("chestthump");
+          showVideo('chestthump');
         } else if (blocksRemaining < 2016) {
-          showVideo("anticipation");
+          showVideo('anticipation');
         } else if (blocksRemaining < 4464) {
-          showVideo("cartman");
+          showVideo('cartman');
+        } else {
+          // Hide videos if blocks remaining is above threshold
+          showVideo(null);
         }
       }
 
+      /**
+       * Called by Flip library when initialized
+       */
       function startCountdown(tick) {
+        if (isInitialized) {
+          console.warn('startCountdown called multiple times');
+          return;
+        }
+        isInitialized = true;
         tickInstance = tick;
         
-        // Initial fetch if needed
-        if (secondsRemaining === null) {
+        // Now that tickInstance is ready, start the data fetch
+        // If secondsRemaining was calculated before tickInstance was ready, start the countdown now
+        if (secondsRemaining !== null && secondsRemaining > 0) {
+          startOrResetCountdown(new Date(Date.now() + secondsRemaining * 1000));
+        } else {
+          // Initial fetch
           updateChaintip();
         }
       }
 
+      /**
+       * Start or restart the countdown timer
+       */
       function startOrResetCountdown(deadline) {
-        if (!tickInstance) return;
+        if (!tickInstance) {
+          console.warn('Cannot start countdown: tickInstance not ready');
+          return;
+        }
 
-        // Properly destroy previous counter to stop all internal timers
+        if (!(deadline instanceof Date) || isNaN(deadline.getTime())) {
+          console.error('Invalid deadline provided to startOrResetCountdown');
+          return;
+        }
+
+        // Don't start countdown if deadline is in the past
+        if (deadline.getTime() <= Date.now()) {
+          showTimesUp();
+          return;
+        }
+
+        // Clean up previous counter
         if (tickCounter) {
-          if (typeof tickCounter.stop === "function") {
+          if (typeof tickCounter.stop === 'function') {
             tickCounter.stop();
           }
-          // Clear reference to allow GC
           tickCounter = null;
         }
 
@@ -588,133 +710,228 @@
         const thisGeneration = countdownGeneration;
 
         // Create new countdown
-        tickCounter = Tick.count.down(deadline, {
-          format: ["d", "h", "m", "s"],
-          // Add interval option if available in your version to reduce update frequency
-          interval: 1000  // Update once per second instead of every frame
-        });
+        try {
+          tickCounter = Tick.count.down(deadline, {
+            format: ['d', 'h', 'm', 's']
+          });
+        } catch (err) {
+          console.error('Failed to create countdown:', err);
+          return;
+        }
 
-        // Throttle visual updates - only update Flip when value actually changes
-        let lastValueStr = "";
+        // Throttle updates to reduce CPU usage
+        let lastValueStr = '';
+        let lastAriaUpdate = 0;
         
         tickCounter.onupdate = function (value) {
-          // Skip if generation changed (stale callback)
+          // Skip if this is a stale callback from a previous generation
           if (thisGeneration !== countdownGeneration) return;
           if (!tickInstance) return;
 
-          // Only update DOM if value actually changed (reduces Flip animations)
-          const valueStr = value.join("-");
+          // Only update if value changed (reduces unnecessary DOM updates)
+          const valueStr = value.join('-');
           if (valueStr === lastValueStr) return;
           lastValueStr = valueStr;
 
-          tickInstance.value = value;
+          try {
+            tickInstance.value = value;
+          } catch (err) {
+            console.error('Error updating tick value:', err);
+            return;
+          }
           
-          // Update ARIA less frequently (every 5 seconds or on change)
-          if (value[3] % 5 === 0) {
-            tickInstance.root.setAttribute("aria-label",
-              `${value[0]} days, ${value[1]} hours, ${value[2]} minutes, ${value[3]} seconds`
-            );
+          // Update ARIA label every 5 seconds to reduce DOM operations
+          const now = Date.now();
+          if (now - lastAriaUpdate > 5000 && tickInstance.root) {
+            lastAriaUpdate = now;
+            try {
+              tickInstance.root.setAttribute('aria-label',
+                `${value[0]} days, ${value[1]} hours, ${value[2]} minutes, ${value[3]} seconds remaining`
+              );
+            } catch (err) {
+              // ARIA update failed, not critical
+            }
           }
         };
       }
 
+      /**
+       * Handle the final block scenario
+       */
       function handleFinalBlock() {
         countdownGeneration++;
         
+        // Stop countdown
         if (tickCounter) {
-          if (typeof tickCounter.stop === "function") {
+          if (typeof tickCounter.stop === 'function') {
             tickCounter.stop();
           }
           tickCounter = null;
         }
 
-        document.getElementById("blocksremaining").textContent = "ONE FINAL BLOCK REMAINING!!!";
-        document.getElementById("countdown").style.display = "none";
-        document.getElementById("etaday").style.display = "none";
+        if (domElements.blocksRemaining) {
+          domElements.blocksRemaining.style.display = 'block';
+          domElements.blocksRemaining.textContent = 'ONE FINAL BLOCK REMAINING!!!';
+        }
+
+        if (domElements.countdown) {
+          domElements.countdown.style.display = 'none';
+        }
+        if (domElements.etaDay) {
+          domElements.etaDay.style.display = 'none';
+        }
 
         showVideo(null);
       }
 
-      const videoIds = [
-        "anticipation",
-        "cartman",
-        "chestthump",
-        "misfire",
-        "mixology",
-        "splat",
-        "yourefired"
-      ];
-
+      /**
+       * Hide all videos and pause them
+       */
       function hideAllVideos() {
         videoIds.forEach(id => {
-          const video = document.getElementById(id);
+          const video = domElements.videos[id];
           if (!video) return;
           
-          video.style.display = "none";
-          video.pause();
-          
-          // Release media resources when hidden
-          if (video.src) {
-            video.currentTime = 0;
+          // Only modify if currently visible
+          if (video.style.display !== 'none') {
+            video.style.display = 'none';
+
+            // Check if video is actually playing before pausing
+            if (!video.paused) {
+              video.pause();
+            }
+
+            // Reset time safely
+            if (video.readyState >= 2) { // HAVE_CURRENT_DATA
+              try {
+                video.currentTime = 0;
+              } catch (err) {
+                // Ignore errors from seeking
+              }
+            }
           }
         });
+        lastShownVideo = null;
       }
 
+      /**
+       * Show specific video
+       */
       function showVideo(name) {
+        // If same video is already shown, don't re-hide/show
+        if (name === lastShownVideo) return;
+
         hideAllVideos();
         if (!name) return;
 
-        const video = document.getElementById(name);
-        if (!video) return;
+        const video = domElements.videos[name];
+        if (!video) {
+          console.warn('Video not found:', name);
+          return;
+        }
 
-        video.style.display = "block";
+        video.style.display = 'block';
+        lastShownVideo = name;
 
-        // Use IntersectionObserver to only play when visible
+        // Handle play() promise properly with user interaction check
         const playPromise = video.play();
-        if (playPromise && typeof playPromise.catch === "function") {
+        if (playPromise && typeof playPromise.catch === 'function') {
           playPromise.catch(err => {
-            console.warn("Video playback blocked:", name, err);
+            // Autoplay was prevented (common if user hasn't interacted)
+            if (err.name === 'NotAllowedError') {
+              console.log('Autoplay prevented for video:', name);
+            } else {
+              console.warn('Video playback error:', name, err);
+            }
           });
         }
       }
 
+      /**
+       * Show "time's up" state
+       */
       function showTimesUp() {
-        countdownGeneration++;
+        // Prevent multiple calls
+        if (countdownGeneration < 0) return; // Negative generation = already ended
 
+        countdownGeneration = -1; // Mark as ended
+
+        // Stop polling
+        if (updateIntervalId) {
+          clearInterval(updateIntervalId);
+          updateIntervalId = null;
+        }
+
+        // Stop countdown
         if (tickCounter) {
-          if (typeof tickCounter.stop === "function") {
+          if (typeof tickCounter.stop === 'function') {
             tickCounter.stop();
           }
           tickCounter = null;
         }
 
-        const blocksEl = document.getElementById("blocksremaining");
-        blocksEl.style.display = "block";
-        blocksEl.textContent = "Time's up!";
+        if (domElements.blocksRemaining) {
+          domElements.blocksRemaining.style.display = 'block';
+          domElements.blocksRemaining.textContent = "Time's up! The fork has occurred.";
+        }
 
-        document.getElementById("countdown").style.display = "none";
-        document.getElementById("etaday").style.display = "none";
+        if (domElements.countdown) {
+          domElements.countdown.style.display = 'none';
+        }
+        if (domElements.etaDay) {
+          domElements.etaDay.style.display = 'none';
+        }
 
-        showVideo("splat");
+        showVideo('splat');
       }
 
-      // Visibility API - pause when tab is hidden to save CPU
-      document.addEventListener("visibilitychange", () => {
+      // Visibility API - pause/resume appropriately
+      document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
-          // Pause videos when tab hidden
+          // Pause videos when tab hidden to save resources
           videoIds.forEach(id => {
-            const video = document.getElementById(id);
-            if (video) video.pause();
+            const video = domElements.videos[id];
+            if (video && !video.paused) {
+              video.pause();
+            }
           });
         } else {
-          // Resume current video if needed
+          // Resume video if one should be playing
+          if (lastShownVideo && domElements.videos[lastShownVideo]) {
+            const video = domElements.videos[lastShownVideo];
+            if (video.paused && video.style.display !== 'none') {
+              video.play().catch(() => {}); // Ignore autoplay errors
+            }
+          }
+          // Refresh data when becoming visible
           updateChaintip();
         }
       });
 
-      // Initial load and interval
-      updateChaintip();
-      setInterval(updateChaintip, 60000);
+      // Handle page unload to clean up resources
+      window.addEventListener('beforeunload', () => {
+        if (updateIntervalId) {
+          clearInterval(updateIntervalId);
+        }
+        if (tickCounter && typeof tickCounter.stop === 'function') {
+          tickCounter.stop();
+        }
+        // Pause all videos
+        videoIds.forEach(id => {
+          const video = domElements.videos[id];
+          if (video) video.pause();
+        });
+      });
+
+      // Handle errors during initialization
+      try {
+        // Start the update loop
+        updateChaintip();
+        // Store interval ID so we can clear it later
+        updateIntervalId = setInterval(updateChaintip, 60000);
+      } catch (err) {
+        console.error('Failed to initialize countdown:', err);
+      }
     </script>
   </body>
 </html>
