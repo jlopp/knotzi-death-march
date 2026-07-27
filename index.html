@@ -404,7 +404,7 @@
               Wicked Smart Bitcoin
             </a><br/>
             Compare node block heights:
-            <a href="https://bip110.orange.surf/live.html?b=959697" target="_blank" rel="noopener noreferrer">
+            <a href="https://bip110.orange.surf/live.html" target="_blank" rel="noopener noreferrer">
               Orange Surf
             </a><br/>
             Detailed node stats:
@@ -451,6 +451,11 @@
 
             <video loop controls muted playsinline preload="metadata" id="chestthump" style="display: none">
               <source src="media/chestthump.mp4" type="video/mp4" />
+              <p>Your browser does not support the video tag. Please upgrade to a modern browser.</p>
+            </video>
+
+            <video loop controls muted playsinline preload="metadata" id="knight" style="display: none">
+              <source src="media/knight.mp4" type="video/mp4" />
               <p>Your browser does not support the video tag. Please upgrade to a modern browser.</p>
             </video>
 
@@ -532,7 +537,7 @@
       const CHAIN_TIP_URL = 'https://mempool.space/api/blocks/tip/height';
 
       const videoIds = [
-        'anticipation', 'cartman', 'chestthump', 
+        'anticipation', 'cartman', 'chestthump', 'knight',
         'misfire', 'mixology', 'splat', 'yourefired'
       ];
 
@@ -685,6 +690,8 @@
           showVideo('mixology');
         } else if (blocksRemaining < 1008) {
           showVideo('chestthump');
+        } else if (blocksRemaining < 1500) {
+          showVideo('knight');
         } else if (blocksRemaining < 2016) {
           showVideo('anticipation');
         } else if (blocksRemaining < 4464) {
